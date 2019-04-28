@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"io"
 	"crypto/rand"
+	"errors"
 )
 
 type Itinerary struct {
@@ -147,7 +148,7 @@ type Attraction struct {
 	Location            Location   `json:"location" gorm:"association_foreignkey:ID"`
 	Coordinate          Coordinate `json:"coordinate"`
 	Tags                Tags       `json:"tags"`
-	Photo               []string   `json:"photo"`
+	Photo               map[string]string   `json:"photo"`
 	OpeningHours        map[string]OpClose  `json:"opening_hours"`
 }
 
@@ -303,6 +304,25 @@ func CalculateSimilarityList(detail Detail, AttractionList []Attraction) ([]floa
 		similarity = append(similarity, float64(CalculateSimilarity(detail.Tags, AttractionList[i].Tags)))
 	}
 	return similarity, nil
+}
+func GetAttraction(AttractionId string) (Attraction, error) {
+	var data map[string]map[string]map[string]Attraction
+	// Open our jsonFile
+	jsonFile, err := os.Open("database.json")
+	// if we os.Open returns an error then handle it
+	if err != nil {
+		return Attraction{}, err
+	}
+	defer jsonFile.Close()
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	json.Unmarshal(byteValue, &data)
+
+	if _, ok := data["attractions"]["8ec9ee93-8863-419a-96f9-9a2a4cc7d815"][AttractionId]; !ok {
+		return Attraction{},errors.New("Attraction Not FOund")
+	}
+
+	return data["attractions"]["8ec9ee93-8863-419a-96f9-9a2a4cc7d815"][AttractionId], nil
 }
 
 func CreateItinerary(detail Detail, username string) (Itinerary, error) {
@@ -481,6 +501,36 @@ func main() {
 			return
 		}
 		ctx.JSON(http.StatusCreated, Itinerary)
+	})
+	r.GET("/attraction/:id", func(ctx *gin.Context) {
+		attractionId := ctx.Param("id")
+
+		attractionData, err := GetAttraction(attractionId)
+
+		if err != nil {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, attractionData)
+	})
+	r.GET("/top", func(ctx *gin.Context) {
+		var top []Attraction
+		list := []string{
+			"1d94639e-6820-4c65-9dd8-a0290deab394",
+			"07679998-dfb0-4e8d-8e3c-02d60a07b71b",
+			"70b4e9cb-57a8-493f-b15a-8d996b95b4e3",
+			"96ac43b5-fc4a-44ac-903b-948ef6249462",
+			"e4766980-bf81-40a5-a68e-d3766ffaff73",
+		}
+		for _, id := range list {
+			att, err := GetAttraction(id)
+			if err != nil {
+				ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+				return
+			}
+			top = append(top, att)
+		}
+		ctx.JSON(http.StatusOK, top)
 	})
 	r.Run()
 }
