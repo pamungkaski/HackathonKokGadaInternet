@@ -11,6 +11,10 @@ import (
 	"os"
 	"io/ioutil"
 	"encoding/json"
+	"github.com/gin-gonic/gin"
+	"net/http"
+	"io"
+	"crypto/rand"
 )
 
 type Itinerary struct {
@@ -185,6 +189,19 @@ func GetAllAttraction() ([]Attraction, error) {
 	return list, nil
 }
 
+func NewUUID() (string, error) {
+	uuid := make([]byte, 16)
+	n, err := io.ReadFull(rand.Reader, uuid)
+	if n != len(uuid) || err != nil {
+		return "", err
+	}
+	// variant bits; see section 4.1.1
+	uuid[8] = uuid[8]&^0xc0 | 0x80
+	// version 4 (pseudo-random); see section 4.1.3
+	uuid[6] = uuid[6]&^0xf0 | 0x40
+	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:]), nil
+}
+
 func CalculateDistanceToManyCoordinate(dest Attraction, aorigin []Attraction, key string) ([]Edge, error) {
 	var edges []Edge
 	desLat, err := strconv.ParseFloat(strings.Replace(dest.Coordinate.Latitude, " ", "", -1), 64)
@@ -291,7 +308,7 @@ func CalculateSimilarityList(detail Detail, AttractionList []Attraction) ([]floa
 func CreateItinerary(detail Detail, username string) (Itinerary, error) {
 	var itinerary Itinerary
 	EstimatedCost := 0.0
-	itinerary.ID, _ = helpers.NewUUID()
+	itinerary.ID, _ = NewUUID()
 	itinerary.Username = username
 	itinerary.Detail = detail
 
@@ -438,5 +455,32 @@ func CreateItinerary(detail Detail, username string) (Itinerary, error) {
 }
 
 func main() {
-	fmt.Println(CreateItinerary(Detail{Start: time.Now(), Finish: time.Now().Add(3 *time.Hour *24), Budget: 3000000}, "heheh"))
+	r := gin.Default()
+	r.POST("/itinerary", func(ctx *gin.Context) {
+		request := ItineraryRequest{}
+		if err := ctx.BindJSON(&request); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		Finish, _ := time.Parse("2006-Jan-02", request.Finish)
+		Start, _ := time.Parse("2006-Jan-02", request.Start)
+
+		requestData := Detail{
+			LocationID: request.LocationID,
+			Tags:       request.Tags,
+			Budget:     request.Budget,
+			Start:      Start,
+			Finish:     Finish,
+		}
+
+		Itinerary, err := CreateItinerary(requestData, "heheh")
+
+		if err != nil {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusCreated, Itinerary)
+	})
+	r.Run()
 }
